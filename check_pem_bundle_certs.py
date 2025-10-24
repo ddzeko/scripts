@@ -2,7 +2,7 @@
 
 import sys
 import fileinput
-from datetime import datetime
+from datetime import datetime, timezone
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -15,7 +15,7 @@ from pprint import pprint
 
 state = 'start'
 cert_count = 0
-today_dt = datetime.now()
+today_dt = datetime.now(timezone.utc)
 today = datetime.strftime(today_dt, "%Y-%m-%d")
 
 def is_ca(certificate):
@@ -53,9 +53,9 @@ for line in fileinput.input():
             except x509.ExtensionNotFound:
                 san = None
                 pass            
-            expiry = datetime.strftime(cert.not_valid_after, "%Y-%m-%d")            
-            delta = cert.not_valid_after - today_dt
-            if cert.not_valid_after > today_dt: 
+            expiry = datetime.strftime(cert.not_valid_after_utc, "%Y-%m-%d")
+            delta = cert.not_valid_after_utc - today_dt
+            if cert.not_valid_after_utc > today_dt: 
                 expired = f"(got {delta.days} days remaining, checked on {today})"
                 if is_ca(cert) and delta.days < 730 or delta.days < 45:
                     # if CA certificate -- warn if less than 2 years left
