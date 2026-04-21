@@ -35,7 +35,7 @@ def dumper(obj):
 
 
 
-def parse_certificate(cert_pem: str, file_name: str = None, cert_index: int = 1, 
+def parse_certificate(cert_data: Union[str, bytes], file_name: str = None, cert_index: int = 1,
                      check_date: datetime = None) -> Dict[str, Any]:
     """Parse a single PEM certificate and return certificate information.
     
@@ -53,8 +53,10 @@ def parse_certificate(cert_pem: str, file_name: str = None, cert_index: int = 1,
     
     today = datetime.strftime(check_date, "%Y-%m-%d")
     
-    pem_data = cert_pem.encode('ascii')
-    cert = x509.load_pem_x509_certificate(pem_data, default_backend())
+    if isinstance(cert_data, bytes):
+        cert = x509.load_der_x509_certificate(cert_data, default_backend())
+    else:
+        cert = x509.load_pem_x509_certificate(cert_data.encode('ascii'), default_backend())
     
     subject = cert.subject.rfc4514_string()
     issuer = cert.issuer.rfc4514_string()
@@ -128,6 +130,12 @@ def parse_certificate(cert_pem: str, file_name: str = None, cert_index: int = 1,
     return cert_info
 
 
+def _is_der_file(path: str) -> bool:
+    with open(path, 'rb') as f:
+        hdr = f.read(2)
+    return hdr[0] == 0x30 and hdr[1] in (0x81, 0x82, 0x83)
+
+
 def analyze_pem_bundle(input_source: Union[str, List[str], IO], **kwargs) -> List[Dict[str, Any]]:
     """Analyze PEM certificate bundle(s) and return certificate information.
     
@@ -161,27 +169,27 @@ def analyze_pem_bundle(input_source: Union[str, List[str], IO], **kwargs) -> Lis
             input_lines = input_source.splitlines()
             file_name = None
         else:
-            # Filename
-            with open(input_source, 'r') as f:
-                input_lines = f.readlines()
             file_name = input_source
-        
-        certificates.extend(_parse_pem_lines(input_lines, file_name, check_date, include_pem, debug))
+            if _is_der_file(input_source):
+                with open(input_source, 'rb') as f:
+                    certificates.append(parse_certificate(f.read(), file_name, 1, check_date))
+            else:
+                with open(input_source, 'r') as f:
+                    input_lines = f.readlines()
+                certificates.extend(_parse_pem_lines(input_lines, file_name, check_date, include_pem, debug))
         
     elif isinstance(input_source, list):
         # Multiple files - process each separately
         for item in input_source:
             if item.startswith('-----BEGIN CERTIFICATE-----'):
-                # Direct PEM content
-                input_lines = item.splitlines()
-                file_name = None
+                certificates.extend(_parse_pem_lines(item.splitlines(), None, check_date, include_pem, debug))
+            elif _is_der_file(item):
+                with open(item, 'rb') as f:
+                    certificates.append(parse_certificate(f.read(), item, 1, check_date))
             else:
-                # Filename
                 with open(item, 'r') as f:
                     input_lines = f.readlines()
-                file_name = item
-            
-            certificates.extend(_parse_pem_lines(input_lines, file_name, check_date, include_pem, debug))
+                certificates.extend(_parse_pem_lines(input_lines, item, check_date, include_pem, debug))
     else:
         # File-like object
         input_lines = input_source.readlines()
